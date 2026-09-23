@@ -1,20 +1,7 @@
 node_modules/
 dist/
-.env
-.env.local
+.output/
+nitro/
+src/routeTree.gen.ts
 *.log
-logs/
-.DS_Store
-Thumbs.db
-coverage/
-*.lcov
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Dependencies
-bun.lockb
-bun.lock
+.env

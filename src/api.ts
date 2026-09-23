@@ -15,20 +15,25 @@ export function getSettings(): Settings {
 }
 
 export function saveSettings(s: Settings): void {
-  localStorage.setItem('ayesh.settings', JSON.stringify(s));
+  try {
+    localStorage.setItem('ayesh.settings', JSON.stringify(s));
+  } catch {
+    // SSR / storage disabled — abaikan
+  }
 }
 
 function headers(): Record<string, string> {
-  const { baseUrl, apiKey } = getSettings();
-  void baseUrl;
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  const { apiKey } = getSettings();
   if (apiKey) h['X-API-Key'] = apiKey;
   return h;
 }
 
 export function apiBase(): string {
   const { baseUrl } = getSettings();
-  return (baseUrl || '').replace(/\/+$/, '');
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  // kosong → proxy vite /api/* → 127.0.0.1:8080
+  return trimmed || '/api';
 }
 
 export interface StreamHandlers {
@@ -41,19 +46,6 @@ export interface StreamHandlers {
 export async function healthCheck(): Promise<Record<string, unknown>> {
   const res = await fetch(`${apiBase()}/health`, { headers: headers() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-export async function chatUnary(message: string, sessionId?: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`${apiBase()}/chat`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ message, session_id: sessionId }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-  }
   return res.json();
 }
 
@@ -81,7 +73,7 @@ export async function chatStreamTokens(
     for (const line of raw.split('\n')) {
       if (line.startsWith('event:')) event = line.slice(6).trim();
       else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-      else if (line.startsWith(':')) return; // comment/ping
+      else if (line.startsWith(':')) return; // ping comment
     }
     if (dataLines.length === 0) return;
     let data: Record<string, unknown> = {};

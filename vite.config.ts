@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { tanstackStart } from '@tanstack/react-start/plugin/vite';
+import viteReact from '@vitejs/plugin-react';
+import { nitro } from 'nitro/vite';
 
 export default defineConfig({
-  plugins: [react()],
   server: {
-    port: 5174,
+    port: 3000,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8080',
@@ -13,7 +14,17 @@ export default defineConfig({
       },
     },
   },
-  build: {
-    outDir: 'dist',
-  },
+  plugins: [
+    tanstackStart(),
+    // react plugin HARUS setelah tanstackStart()
+    viteReact(),
+    nitro({
+      routeRules: {
+        // proxy /api/* → ayesh-core REST (berlaku di prod; dev pakai server.proxy di atas)
+        '/api/**': {
+          proxy: 'http://127.0.0.1:8080/**',
+        },
+      },
+    }),
+  ],
 });
