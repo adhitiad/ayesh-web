@@ -1,6 +1,6 @@
 import { fetchEventSource, type EventSourceMessage } from '@microsoft/fetch-event-source';
 import type { StreamDoneData, StreamErrorData, StreamStatusData } from '../types/chat';
-import { apiBase, headers } from './http';
+import { apiBase, authHeaders, headers, requestCredentials } from './http';
 
 export interface SseHandlers {
   onStatus?: (data: StreamStatusData) => void;
@@ -23,13 +23,17 @@ export async function ssePost(
   signal?.addEventListener('abort', relayAbort);
   let finished = false;
 
+  const credentials = requestCredentials();
+
   try {
     await fetchEventSource(`${apiBase()}${path}`, {
       method: 'POST',
-      headers: headers(),
+      headers: { ...headers(), ...authHeaders('POST') },
       body: JSON.stringify(body),
       signal: ctrl.signal,
       openWhenHidden: true,
+      // Mode sesi: cookie + X-CSRF-Token ikut agar stream tetap jalan tanpa API key.
+      ...(credentials ? { credentials } : {}),
       async onopen(res) {
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       },

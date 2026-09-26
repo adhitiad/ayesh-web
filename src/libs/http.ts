@@ -3,6 +3,49 @@ import { z } from 'zod';
 import { logger } from './logger';
 import { getSettings } from '../stores/settings';
 
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /** Penanda retry CSRF: false = belum, true = sudah pernah retry sekali. */
+    __csrfRetry?: boolean;
+  }
+}
+
+/** Error HTTP yang membawa status + payload detail asli (untuk UI, mis. hint 409). */
+export class ApiError extends Error {
+  readonly status?: number;
+  readonly detail?: unknown;
+
+  constructor(message: string, status?: number, detail?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/** Mode auth per panggilan: apiKey kosong → sesi cookie; apiKey ada → perilaku lama. */
+export type AuthMode = 'cookie' | 'apikey';
+
+export function authMode(): AuthMode {
+  return getSettings().apiKey.trim() ? 'apikey' : 'cookie';
+}
+
+/** Baca cookie non-HttpOnly (ayesh_csrf). Aman dipanggil di SSR (return null). */
+export function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match && match[1] !== undefined ? decodeURIComponent(match[1]) : null;
+}
+
+/** Titik injeksi navigasi (agar test bisa spy; SSR dijaga di dalamnya). */
+export const navigation = {
+  go(url: string): void {
+    if (typeof window !== 'undefined') window.location.href = url;
+  },
+};
+
 export function apiBase(): string {
   const { baseUrl } = getSettings();
   const trimmed = baseUrl.trim().replace(/\/+$/, '');
@@ -26,12 +69,57 @@ export function headers(): Record<string, string> {
   return h;
 }
 
+/**
+ * Header tambahan per method. Mutasi wajib X-CSRF-Token (double-submit dengan
+ * cookie ayesh_csrf) — dikirim di kedua mode selama cookie-nya ada, karena
+ * middleware CSRF aktif begitu request membawa cookie sesi.
+ */
+export function authHeaders(method = 'GET'): Record<string, string> {
+  if (SAFE_METHODS.has(method.toUpperCase())) return {};
+  const csrf = readCookie('ayesh_csrf');
+  return csrf ? { 'X-CSRF-Token': csrf } : {};
+}
+
+/** 'include' di mode sesi (cookie lintas-origin ikut); mode API key = default fetch. */
+export function requestCredentials(): RequestCredentials | undefined {
+  return authMode() === 'cookie' ? 'include' : undefined;
+}
+
+function loginUrl(reason?: string): string {
+  if (typeof window === 'undefined') return '/login';
+  const params = new URLSearchParams({
+    next: `${window.location.pathname}${window.location.search}`,
+  });
+  if (reason) params.set('reason', reason);
+  return `/login?${params.toString()}`;
+}
+
+/**
+ * 401 → /login?next=<path> hanya di mode sesi dan bukan untuk endpoint /auth/
+ * (salah password bukan sesi hilang) dan bukan saat sudah di /login|/register
+ * (anti-loop).
+ */
+function shouldRedirectToLogin(config: { url?: string } | undefined): boolean {
+  if (authMode() !== 'cookie') return false;
+  if (typeof window === 'undefined') return false;
+  if ((config?.url ?? '').startsWith('/auth/')) return false;
+  const path = window.location.pathname;
+  if (path === '/login' || path === '/register') return false;
+  return true;
+}
+
 export const http = axios.create();
 
 http.interceptors.request.use((config) => {
   config.baseURL = apiBase();
   for (const [key, value] of Object.entries(headers())) {
     config.headers.set(key, value);
+  }
+  for (const [key, value] of Object.entries(authHeaders(config.method))) {
+    config.headers.set(key, value);
+  }
+  if (authMode() === 'cookie') {
+    config.withCredentials = true;
   }
   return config;
 });
@@ -42,15 +130,36 @@ http.interceptors.response.use(
     if (axios.isAxiosError(err)) {
       const response = err.response;
       const status = response?.status;
+      const config = err.config;
       if (response && status !== undefined) {
-        const data = response.data as { detail?: unknown; message?: unknown } | undefined;
+        const data = response.data as
+          { detail?: unknown; message?: unknown; error?: string } | undefined;
+
+        // 403 csrf_token: cookie ayesh_csrf kemungkinan berganti → baca ulang
+        // (interceptor request) lalu retry satu kali.
+        if (status === 403 && data?.error === 'csrf_token' && config && !config.__csrfRetry) {
+          config.__csrfRetry = true;
+          return http.request(config);
+        }
+        if (status === 403 && typeof data?.error === 'string' && data.error.startsWith('csrf_')) {
+          // Retry habis atau Origin ditolak → fail-closed: logout lokal.
+          navigation.go(loginUrl('csrf'));
+        }
+        if (status === 401 && shouldRedirectToLogin(config)) {
+          navigation.go(loginUrl());
+        }
+
         if (typeof data?.detail === 'string' && data.detail) {
-          return Promise.reject(new Error(`HTTP ${status}: ${data.detail}`));
+          return Promise.reject(
+            new ApiError(`HTTP ${status}: ${data.detail}`, status, data.detail),
+          );
         }
         if (typeof data?.message === 'string' && data.message) {
-          return Promise.reject(new Error(`HTTP ${status}: ${data.message}`));
+          return Promise.reject(
+            new ApiError(`HTTP ${status}: ${data.message}`, status, data.message),
+          );
         }
-        return Promise.reject(new Error(`HTTP ${status}`));
+        return Promise.reject(new ApiError(`HTTP ${status}`, status, data?.detail ?? data));
       }
       return Promise.reject(new Error('Failed to fetch'));
     }

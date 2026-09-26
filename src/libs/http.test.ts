@@ -3,7 +3,18 @@ import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'ax
 import { AxiosError } from 'axios';
 import { z } from 'zod';
 import { useSettingsStore } from '../stores/settings';
-import { apiBase, headers, http, request } from './http';
+import {
+  ApiError,
+  apiBase,
+  authHeaders,
+  authMode,
+  headers,
+  http,
+  navigation,
+  readCookie,
+  request,
+  requestCredentials,
+} from './http';
 import { logger } from './logger';
 
 const adapterAsli = http.defaults.adapter;
@@ -28,9 +39,17 @@ function errAxios(pesan: string, kode: string, response?: Partial<AxiosResponse>
   );
 }
 
+function hapusCookie(nama: string): void {
+  document.cookie = `${nama}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+}
+
+let goSpy: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   localStorage.clear();
   useSettingsStore.setState({ baseUrl: '', apiKey: '' });
+  hapusCookie('ayesh_csrf');
+  goSpy = vi.spyOn(navigation, 'go').mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -131,5 +150,178 @@ describe('libs/http request', () => {
     const hasil = await request(z.object({ a: z.number() }), { url: '/salah' });
     expect(hasil).toBe(mentah);
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe('libs/http mode auth ganda', () => {
+  it('authMode: apiKey kosong → cookie; ada → apikey', () => {
+    expect(authMode()).toBe('cookie');
+    useSettingsStore.setState({ baseUrl: '', apiKey: ' fr_abc ' });
+    expect(authMode()).toBe('apikey');
+  });
+
+  it('readCookie membaca ayesh_csrf dan null bila tak ada', () => {
+    expect(readCookie('ayesh_csrf')).toBeNull();
+    document.cookie = 'ayesh_csrf=token%20123';
+    expect(readCookie('ayesh_csrf')).toBe('token 123');
+  });
+
+  it('authHeaders: mutasi bawa CSRF, GET tidak', () => {
+    document.cookie = 'ayesh_csrf=abc';
+    expect(authHeaders('POST')).toEqual({ 'X-CSRF-Token': 'abc' });
+    expect(authHeaders('delete')).toEqual({ 'X-CSRF-Token': 'abc' });
+    expect(authHeaders('GET')).toEqual({});
+  });
+
+  it('mode cookie: withCredentials aktif + X-CSRF-Token di POST', async () => {
+    document.cookie = 'ayesh_csrf=abc';
+    let terlihat: InternalAxiosRequestConfig | undefined;
+    http.defaults.adapter = async (config) => {
+      terlihat = config;
+      return { data: {}, status: 200, statusText: 'OK', headers: {}, config };
+    };
+    await http.post('/x', { a: 1 });
+    expect(terlihat?.withCredentials).toBe(true);
+    expect(terlihat?.headers.get('X-CSRF-Token')).toBe('abc');
+    expect(terlihat?.headers.has('X-API-Key')).toBe(false);
+    expect(requestCredentials()).toBe('include');
+  });
+
+  it('mode cookie: GET tidak menyertakan X-CSRF-Token', async () => {
+    document.cookie = 'ayesh_csrf=abc';
+    let terlihat: InternalAxiosRequestConfig | undefined;
+    http.defaults.adapter = async (config) => {
+      terlihat = config;
+      return { data: {}, status: 200, statusText: 'OK', headers: {}, config };
+    };
+    await http.get('/x');
+    expect(terlihat?.headers.has('X-CSRF-Token')).toBe(false);
+  });
+
+  it('mode API key: perilaku lama utuh (tanpa withCredentials)', async () => {
+    useSettingsStore.setState({ baseUrl: '', apiKey: 'k1' });
+    let terlihat: InternalAxiosRequestConfig | undefined;
+    http.defaults.adapter = async (config) => {
+      terlihat = config;
+      return { data: {}, status: 200, statusText: 'OK', headers: {}, config };
+    };
+    await http.post('/x', {});
+    expect(terlihat?.headers.get('X-API-Key')).toBe('k1');
+    expect(terlihat?.headers.get('Authorization')).toBe('Bearer k1');
+    expect(terlihat?.withCredentials).toBeUndefined();
+    expect(terlihat?.headers.has('X-CSRF-Token')).toBe(false);
+    expect(requestCredentials()).toBeUndefined();
+  });
+});
+
+describe('libs/http interceptor 401 dan 403 CSRF', () => {
+  /** Tolak dari adapter dengan config ASLI (url/method/header ikut ke interceptor). */
+  function tolak(config: InternalAxiosRequestConfig, status: number, data: unknown): AxiosError {
+    return new AxiosError('bad', 'ERR_BAD_REQUEST', config, null, {
+      status,
+      statusText: 'E',
+      data,
+      headers: {},
+      config,
+    } as AxiosResponse);
+  }
+
+  function adapterTolak(status: number, data: unknown, url = '/x', method = 'get') {
+    return () => Promise.reject(tolak({ url, method } as InternalAxiosRequestConfig, status, data));
+  }
+
+  it('401 di mode sesi mengarahkan ke /login?next=<path>', async () => {
+    window.history.replaceState({}, '', '/agents?tab=1');
+    http.defaults.adapter = adapterTolak(401, { detail: 'x' }, '/agents', 'get');
+    await expect(http.get('/agents')).rejects.toThrow('HTTP 401: x');
+    expect(goSpy).toHaveBeenCalledWith('/login?next=%2Fagents%3Ftab%3D1');
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('401 pada endpoint /auth tidak diredirect (gagal login bukan sesi hilang)', async () => {
+    http.defaults.adapter = adapterTolak(401, { detail: 'salah' }, '/auth/login', 'post');
+    await expect(http.post('/auth/login', {})).rejects.toThrow('HTTP 401: salah');
+    expect(goSpy).not.toHaveBeenCalled();
+  });
+
+  it('401 di mode API key tidak diredirect', async () => {
+    useSettingsStore.setState({ baseUrl: '', apiKey: 'k1' });
+    http.defaults.adapter = adapterTolak(401, { detail: 'x' });
+    await expect(http.get('/x')).rejects.toThrow('HTTP 401: x');
+    expect(goSpy).not.toHaveBeenCalled();
+  });
+
+  it('403 csrf_token: retry sekali dengan token segar lalu sukses', async () => {
+    document.cookie = 'ayesh_csrf=bar1';
+    const headerPerCobaan: (string | null)[] = [];
+    let panggilan = 0;
+    http.defaults.adapter = async (config) => {
+      panggilan += 1;
+      headerPerCobaan.push(config.headers.get('X-CSRF-Token') as string | null);
+      if (panggilan === 1) {
+        document.cookie = 'ayesh_csrf=bar2';
+        throw tolak(config, 403, {
+          error: 'csrf_token',
+          detail: 'X-CSRF-Token tidak cocok.',
+        });
+      }
+      return { data: { ok: true }, status: 200, statusText: 'OK', headers: {}, config };
+    };
+    const res = await http.post('/x', {});
+    expect(res.status).toBe(200);
+    expect(panggilan).toBe(2);
+    expect(headerPerCobaan).toEqual(['bar1', 'bar2']);
+    expect(goSpy).not.toHaveBeenCalled();
+  });
+
+  it('403 csrf_token kedua kali → logout lokal (/login?reason=csrf)', async () => {
+    document.cookie = 'ayesh_csrf=bar1';
+    let panggilan = 0;
+    http.defaults.adapter = async (config) => {
+      panggilan += 1;
+      throw tolak(config, 403, { error: 'csrf_token', detail: 'X-CSRF-Token tidak cocok.' });
+    };
+    await expect(http.post('/x', {})).rejects.toThrow('HTTP 403: X-CSRF-Token tidak cocok.');
+    expect(panggilan).toBe(2);
+    expect(goSpy).toHaveBeenCalledWith('/login?next=%2F&reason=csrf');
+  });
+
+  it('403 csrf_origin langsung logout lokal tanpa retry', async () => {
+    let panggilan = 0;
+    http.defaults.adapter = async (config) => {
+      panggilan += 1;
+      throw tolak(config, 403, { error: 'csrf_origin', detail: 'Origin tidak diizinkan.' });
+    };
+    await expect(http.post('/x', {})).rejects.toThrow('HTTP 403: Origin tidak diizinkan.');
+    expect(panggilan).toBe(1);
+    expect(goSpy).toHaveBeenCalledWith('/login?next=%2F&reason=csrf');
+  });
+
+  it('403 biasa (bukan csrf) tidak memicu retry maupun redirect', async () => {
+    http.defaults.adapter = adapterTolak(403, {
+      detail: 'Forbidden: owner role required',
+    });
+    await expect(http.get('/x')).rejects.toThrow('HTTP 403: Forbidden: owner role required');
+    expect(goSpy).not.toHaveBeenCalled();
+  });
+
+  it('ApiError membawa status dan detail untuk pemanggil', async () => {
+    http.defaults.adapter = adapterTolak(
+      409,
+      { detail: { message: 'sudah terdaftar', hint_provider: 'google' } },
+      '/auth/register',
+      'post',
+    );
+    const err = await http.post('/auth/register', {}).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(409);
+    expect((err as ApiError).detail).toEqual({
+      message: 'sudah terdaftar',
+      hint_provider: 'google',
+    });
+    expect(goSpy).not.toHaveBeenCalled();
   });
 });
