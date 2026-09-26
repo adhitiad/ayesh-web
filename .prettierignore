@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.output/
+nitro/
+coverage/
+src/routeTree.gen.ts
+bun.lock
+*.log
