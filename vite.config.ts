@@ -19,6 +19,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ''),
       },
+      '/payments': {
+        target: 'http://127.0.0.1:8090',
+        changeOrigin: true,
+      },
     },
   },
   plugins: [
@@ -31,6 +35,9 @@ export default defineConfig({
         // proxy /api/* → ayesh-core REST (berlaku di prod; dev pakai server.proxy di atas)
         '/api/**': {
           proxy: 'http://127.0.0.1:8080/**',
+        },
+        '/payments/**': {
+          proxy: 'http://127.0.0.1:8090/payments/**',
         },
       },
     }),

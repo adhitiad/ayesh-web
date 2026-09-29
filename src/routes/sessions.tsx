@@ -12,12 +12,17 @@ import {
   getMemory,
 } from '../api';
 import { setCurrentSessionId } from '../stores/chat';
+import { AuthGuard } from '../components/auth/auth-guard';
 import { Button } from '../components/ui/button';
 import { SessionList } from '../components/sessions/session-list';
 import { SessionDetailView } from '../components/sessions/session-detail';
 
 export const Route = createFileRoute('/sessions')({
-  component: SessionsPage,
+  component: () => (
+    <AuthGuard>
+      <SessionsPage />
+    </AuthGuard>
+  ),
 });
 
 function SessionsPage() {

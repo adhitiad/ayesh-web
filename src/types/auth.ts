@@ -176,5 +176,7 @@ export type AuthLoginResult = z.infer<typeof authLoginResultSchema>;
 export type AuthRegisterRequest = z.infer<typeof authRegisterRequestSchema>;
 export type AuthRegisterResult = z.infer<typeof authRegisterResultSchema>;
 export type AuthSessionItem = z.infer<typeof authSessionItemSchema>;
+export type AuthSessionList = z.infer<typeof authSessionListSchema>;
+export type AuthSessionRevokeResult = z.infer<typeof authSessionRevokeResultSchema>;
 export type AuthLinkedAccount = z.infer<typeof authLinkedAccountSchema>;
 export type AuthOAuthProvider = z.infer<typeof authOAuthProviders>;

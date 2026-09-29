@@ -8,4 +8,5 @@ export {
   ScrollTextIcon,
   FileTextIcon,
   CalendarIcon,
+  CreditCardIcon,
 } from 'lucide-react';

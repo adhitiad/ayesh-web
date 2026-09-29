@@ -25,6 +25,7 @@ import {
   type PlanListItem,
 } from '../api';
 import { logger } from '../libs/logger';
+import { AuthGuard } from '../components/auth/auth-guard';
 import { Button } from '../components/ui/button';
 import { Spinner } from '../components/ui/spinner';
 import { AgentsTab } from '../components/agents/agents-tab';
@@ -33,7 +34,11 @@ import { MarketplaceTab } from '../components/agents/marketplace-tab';
 import { PlansTab } from '../components/agents/plans-tab';
 
 export const Route = createFileRoute('/agents')({
-  component: AgentsPage,
+  component: () => (
+    <AuthGuard>
+      <AgentsPage />
+    </AuthGuard>
+  ),
 });
 
 function AgentsPage() {

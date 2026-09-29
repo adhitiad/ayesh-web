@@ -28,6 +28,20 @@ export class ApiError extends Error {
 /** Mode auth per panggilan: apiKey kosong → sesi cookie; apiKey ada → perilaku lama. */
 export type AuthMode = 'cookie' | 'apikey';
 
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    if (err.status === 429) return 'Terlalu banyak permintaan. Coba lagi nanti.';
+    const { detail } = err;
+    if (typeof detail === 'string' && detail) return detail;
+    if (detail && typeof detail === 'object' && 'message' in detail) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === 'string' && message) return message;
+    }
+  }
+  if (err instanceof Error && err.message && err.message !== 'Failed to fetch') return err.message;
+  return fallback;
+}
+
 export function authMode(): AuthMode {
   return getSettings().apiKey.trim() ? 'apikey' : 'cookie';
 }
@@ -71,7 +85,7 @@ export function headers(): Record<string, string> {
 
 /**
  * Header tambahan per method. Mutasi wajib X-CSRF-Token (double-submit dengan
- * cookie ayesh_csrf) — dikirim di kedua mode selama cookie-nya ada, karena
+ * cookie ayesh_csrf), dikirim di kedua mode selama cookie-nya ada, karena
  * middleware CSRF aktif begitu request membawa cookie sesi.
  */
 export function authHeaders(method = 'GET'): Record<string, string> {
@@ -111,7 +125,7 @@ function shouldRedirectToLogin(config: { url?: string } | undefined): boolean {
 export const http = axios.create();
 
 http.interceptors.request.use((config) => {
-  config.baseURL = apiBase();
+  config.baseURL = config.baseURL ?? apiBase();
   for (const [key, value] of Object.entries(headers())) {
     config.headers.set(key, value);
   }
@@ -158,6 +172,9 @@ http.interceptors.response.use(
           return Promise.reject(
             new ApiError(`HTTP ${status}: ${data.message}`, status, data.message),
           );
+        }
+        if (typeof data?.error === 'string' && data.error) {
+          return Promise.reject(new ApiError(`HTTP ${status}: ${data.error}`, status, data.error));
         }
         return Promise.reject(new ApiError(`HTTP ${status}`, status, data?.detail ?? data));
       }

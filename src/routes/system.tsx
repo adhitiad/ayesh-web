@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { RefreshCwIcon, AlertCircleIcon } from '@/components/icons';
 import { useSystemCore } from '../hooks/use-system-core';
 import { useSystemPanels } from '../hooks/use-system-panels';
+import { AuthGuard } from '../components/auth/auth-guard';
 import { Button } from '../components/ui/button';
 import { Spinner } from '../components/ui/spinner';
 import { SystemTabSwitcher } from '../components/system/tab-switcher';
@@ -14,7 +15,11 @@ import { FeedbackTab } from '../components/system/feedback-tab';
 import { AuditTab } from '../components/system/audit-tab';
 
 export const Route = createFileRoute('/system')({
-  component: SystemPage,
+  component: () => (
+    <AuthGuard>
+      <SystemPage />
+    </AuthGuard>
+  ),
 });
 
 function SystemPage() {

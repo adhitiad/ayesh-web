@@ -1,6 +1,13 @@
-import { type ReactNode } from 'react';
-import { Link, Outlet, createRootRoute, HeadContent, Scripts } from '@tanstack/react-router';
-import { QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, type ReactNode } from 'react';
+import {
+  Link,
+  Outlet,
+  createRootRoute,
+  HeadContent,
+  Scripts,
+  useNavigate,
+} from '@tanstack/react-router';
+import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import {
   MessageSquareIcon,
@@ -12,6 +19,9 @@ import {
 } from '@/components/icons';
 import { healthCheck, getPendingApprovals } from '../api';
 import { getQueryClient } from '../libs/query-client';
+import { ToastStack } from '../components/toast-stack';
+import { UserMenu } from '../components/user-menu';
+import { useToastStore } from '../stores/toast';
 import '../styles.css';
 
 export const Route = createRootRoute({
@@ -19,8 +29,11 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Ayesh Web — Multi-Agent Orchestrator' },
+      { title: 'Ayesh Web: Multi-Agent Orchestrator' },
     ],
+  }),
+  validateSearch: (search: Record<string, unknown>): { auth?: string } => ({
+    auth: typeof search.auth === 'string' ? search.auth : undefined,
   }),
   component: RootComponent,
 });
@@ -36,7 +49,37 @@ function RootComponent() {
   );
 }
 
+function oauthErrorText(reason: string | null): string {
+  if (reason === 'email_unverified')
+    return 'Provider menolak: email belum terverifikasi di akun tersebut. Verifikasi dulu di provider, lalu coba lagi.';
+  if (reason === 'missing_params') return 'Alur OAuth tidak lengkap. Coba sekali lagi.';
+  return 'Gagal masuk lewat OAuth. Coba lagi.';
+}
+
 function Shell() {
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const pushToast = useToastStore((s) => s.push);
+  const handledSearch = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!search.auth) {
+      handledSearch.current = null;
+      return;
+    }
+    if (handledSearch.current === window.location.search) return;
+    handledSearch.current = window.location.search;
+    if (search.auth === 'ok') {
+      pushToast('ok', 'Berhasil masuk.');
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+    } else {
+      const reason = new URLSearchParams(window.location.search).get('reason');
+      pushToast('fail', oauthErrorText(reason));
+    }
+    navigate({ to: '.', search: {}, replace: true });
+  }, [search.auth, navigate, pushToast, queryClient]);
+
   const healthQuery = useQuery({
     queryKey: ['system', 'header-health'],
     queryFn: async () => {
@@ -152,6 +195,7 @@ function Shell() {
             <span className="hidden font-mono text-[11px] text-muted-foreground lg:inline">
               {backendUp === null ? 'Memeriksa' : backendUp ? 'Online' : 'Offline'}
             </span>
+            <UserMenu />
           </div>
         </div>
       </header>
@@ -159,6 +203,8 @@ function Shell() {
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col">
         <Outlet />
       </main>
+
+      <ToastStack />
     </div>
   );
 }

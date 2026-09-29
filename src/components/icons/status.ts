@@ -7,5 +7,6 @@ export {
   ShieldCheckIcon,
   ShieldAlertIcon,
   StarIcon,
+  CrownIcon,
   WifiIcon,
 } from 'lucide-react';

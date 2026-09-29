@@ -141,7 +141,7 @@ export function OverridesPanel({ uid, userName, kind, onNotice }: OverridesPanel
         `Override sudah ada: ${res.enabled ? 'aktif' : 'nonaktif'}. Menyimpan akan menimpanya.`,
       );
     } catch {
-      setHint('Belum ada override tersimpan untuk nama ini — akan dibuat baru.');
+      setHint('Belum ada override tersimpan untuk nama ini. Akan dibuat baru.');
     }
   };
 
@@ -185,7 +185,7 @@ export function OverridesPanel({ uid, userName, kind, onNotice }: OverridesPanel
         <p className="text-xs text-muted-foreground">
           {isSkill
             ? 'Skill tanpa baris override mengikuti konfigurasi global. Klik toggle untuk menulis override eksplisit per pengguna.'
-            : 'Server MCP tanpa baris override mengikuti konfigurasi global. Daftar nama MCP tidak punya endpoint list — masukkan nama secara manual bila belum muncul.'}
+            : 'Server MCP tanpa baris override mengikuti konfigurasi global. Daftar nama MCP tidak punya endpoint list, masukkan nama secara manual bila belum muncul.'}
         </p>
 
         {loading ? (
@@ -220,7 +220,7 @@ export function OverridesPanel({ uid, userName, kind, onNotice }: OverridesPanel
                   {busyName === r.name
                     ? 'Menyimpan override…'
                     : r.enabled === null
-                      ? 'Belum ada override — mengikuti global.'
+                      ? 'Belum ada override, mengikuti global.'
                       : `Override tersimpan: ${r.enabled ? 'aktif' : 'nonaktif'}.`}
                 </p>
               </div>

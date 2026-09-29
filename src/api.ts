@@ -8,3 +8,5 @@ export * from './api/sessions';
 export * from './api/jobs';
 export * from './api/users';
 export * from './api/feedback';
+export * from './api/auth';
+export * from './api/billing';

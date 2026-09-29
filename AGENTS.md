@@ -16,7 +16,7 @@ Semua perintah dari `ayesh-web/`:
 | Type check | `bun run typecheck` | `bunx tsc --noEmit`; strict — wajib 0 error                                                                |
 | Lint       | `bun run lint`      | `eslint .` — gate: **0 error, 16 warning baseline** (react-refresh + set-state-in-effect); fix: `lint:fix` |
 | Format     | `bun run format`    | Prettier (`singleQuote`, `semi`, `printWidth:100`, `trailingComma:all`); cek: `format:check`               |
-| Unit test  | `bun run test`      | Vitest (`vitest run`) — 67 tests / 6 file; watch: `test:watch`                                             |
+| Unit test  | `bun run test`      | Vitest (`vitest run`) — 98 tests / 9 file; watch: `test:watch`                                             |
 
 ## Proxy backend
 
